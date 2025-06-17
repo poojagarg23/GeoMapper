@@ -85,7 +85,7 @@ app.get("/get-location", async (req, res) => {
 
   try {
     const publicIpResponse = await axios.get(
-      "https://api6.ipify.org?format=json"
+      "https://api.ipify.org?format=json"
     );
     const configuredIp = publicIpResponse.data.ip;
     console.log(configuredIp, "configuredIp");
