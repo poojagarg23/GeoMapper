@@ -3,6 +3,7 @@ const axios = require("axios");
 require("dotenv").config();
 
 const app = express();
+
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
@@ -18,28 +19,103 @@ app.use((req, res, next) => {
 
 const GEOLOCATION_API_URL = "http://ip-api.com/json/";
 
+const getRealClientIP = async () => {
+  try {
+    const ipServices = [
+      "https://api.ipify.org?format=json",
+      "https://ipinfo.io/ip",
+    ];
+
+    for (const service of ipServices) {
+      try {
+        const response = await axios.get(service, { timeout: 3000 });
+
+        if (service.includes("ipify")) {
+          console.log(response.data.ip, "response.data.ip");
+          return response.data.ip;
+        } else if (service.includes("ipinfo")) {
+          console.log(response.data, "response.data");
+          return response.data;
+        }
+      } catch (err) {
+        console.log(err.message);
+        continue;
+      }
+    }
+
+    throw new Error("All IP detection services failed");
+  } catch (error) {
+    console.error("Error getting real client IP:", error.message);
+    throw error;
+  }
+};
+
+function getClientIp(req) {
+  let ip =
+    req.headers["x-forwarded-for"] ||
+    req.headers["x-real-ip"] ||
+    req.headers["cf-connecting-ip"] ||
+    req.connection.remoteAddress ||
+    req.socket.remoteAddress ||
+    (req.connection.socket ? req.connection.socket.remoteAddress : null);
+
+  console.log("Raw IP from headers:", ip);
+
+  // If the IP is a comma-separated list, take the first one (usually the client's real IP)
+  if (ip && ip.includes(",")) {
+    ip = ip.split(",")[0].trim();
+  }
+
+  // If the IP address is IPv6-mapped IPv4 (e.g., ::ffff:192.168.1.1), strip it out to get the real IPv4 address
+  if (ip && ip.startsWith("::ffff:")) {
+    ip = ip.substring(7); // Remove the ::ffff: prefix for IPv4-mapped IPv6
+  }
+
+  // For IPv6, ensure no additional processing is required
+  if (ip && ip.includes(":")) {
+    console.log("Detected IPv6:", ip);
+  }
+  return ip;
+}
+
 app.get("/get-location", async (req, res) => {
   let clientIp = null;
   let ipSource = "unknown";
   let autoDetected = false;
 
   try {
-    // Force fetching IPv4 address from ipify
     const publicIpResponse = await axios.get(
-      "https://api.ipify.org?format=json&ipv4=true"
+      "https://api6.ipify.org?format=json"
     );
     const configuredIp = publicIpResponse.data.ip;
+    console.log(configuredIp, "configuredIp");
+    clientIp = getClientIp(req);
 
-    // Log IP and its type
-    console.log("Configured IP:", configuredIp);
-    if (configuredIp.includes(":")) {
-      console.log("Detected an IPv6 address");
+    if (clientIp && clientIp !== "127.0.0.1" && clientIp !== "::1") {
+      ipSource = "request_headers";
     } else {
-      console.log("Detected an IPv4 address");
+      try {
+        clientIp = await getRealClientIP();
+        ipSource = "auto_detected";
+        autoDetected = true;
+      } catch (autoDetectError) {
+        return res.status(400).json({
+          error: "Unable to determine client IP address",
+          message:
+            "Failed to detect IP from both headers and external services",
+          details: autoDetectError.message,
+        });
+      }
     }
 
-    // Fetch geolocation based on the IP address
-    const response = await axios.get(`${GEOLOCATION_API_URL}${configuredIp}`);
+    if (!clientIp) {
+      return res.status(400).json({
+        error: "No IP address could be determined",
+        message: "All IP detection methods failed",
+      });
+    }
+
+    const response = await axios.get(`${GEOLOCATION_API_URL}${clientIp}`);
     const locationData = response.data;
 
     if (locationData.status === "fail") {
@@ -50,7 +126,6 @@ app.get("/get-location", async (req, res) => {
       });
     }
 
-    // Send the geolocation data as response
     res.json({
       ip: locationData.query,
       country: locationData.country,
@@ -80,26 +155,13 @@ app.get("/get-location", async (req, res) => {
 
 app.post("/get-city-information", async (req, res) => {
   try {
-    if (!req.body?.iPAddress) {
-      return res.status(400).json({
-        error: "IP address is required",
-      });
-    }
-    const { iPAddress } = req.body;
-
+    const { city } = req.body;
     const response = await axios.get(
-      `https://ipapi.co/${iPAddress}/json/`,
+      `https://ipapi.co/currency/`,
       `
 `
     );
-
-    if (response.status === 200) {
-      return res.status(200).json(response.data);
-    } else {
-      return res.status(400).json({
-        message: "Unable to share the response",
-      });
-    }
+    console.log(response.data);
   } catch (error) {
     console.log(error);
   }
