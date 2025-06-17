@@ -24,11 +24,21 @@ app.get("/get-location", async (req, res) => {
   let autoDetected = false;
 
   try {
+    // Force fetching IPv4 address from ipify
     const publicIpResponse = await axios.get(
-      "https://api.ipify.org?format=json"
+      "https://api.ipify.org?format=json&ipv4=true"
     );
     const configuredIp = publicIpResponse.data.ip;
 
+    // Log IP and its type
+    console.log("Configured IP:", configuredIp);
+    if (configuredIp.includes(":")) {
+      console.log("Detected an IPv6 address");
+    } else {
+      console.log("Detected an IPv4 address");
+    }
+
+    // Fetch geolocation based on the IP address
     const response = await axios.get(`${GEOLOCATION_API_URL}${configuredIp}`);
     const locationData = response.data;
 
@@ -40,6 +50,7 @@ app.get("/get-location", async (req, res) => {
       });
     }
 
+    // Send the geolocation data as response
     res.json({
       ip: locationData.query,
       country: locationData.country,
